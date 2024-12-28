@@ -1,0 +1,121 @@
+---
+# PersistentVolume for NFS storage
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: calibre-pv
+spec:
+  capacity:
+    storage: 15Gi  # Based on current usage of 5.6GB with room for growth
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    path: /mnt/prox-pool/Coolnow/docker/calibre
+    server: truenas.local
+    readOnly: false
+---
+# PersistentVolumeClaim to request storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: calibre-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 15Gi  # Matching PV size
+  volumeName: calibre-pv
+---
+# Deployment for the Calibre application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calibre
+  labels:
+    app: calibre
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calibre
+  template:
+    metadata:
+      labels:
+        app: calibre
+    spec:
+      containers:
+      - name: calibre
+        image: lscr.io/linuxserver/calibre:latest
+        env:
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+        - name: TZ
+          value: "America/Los_Angeles"
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        - containerPort: 8081
+          name: server
+          protocol: TCP
+        volumeMounts:
+        - name: calibre-storage
+          mountPath: /config
+      volumes:
+      - name: calibre-storage
+        persistentVolumeClaim:
+          claimName: calibre-pvc
+---
+# Service to expose the application
+apiVersion: v1
+kind: Service
+metadata:
+  name: calibre
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8091
+    targetPort: 8080
+    protocol: TCP
+    name: web
+  - port: 8092
+    targetPort: 8081
+    protocol: TCP
+    name: server
+  selector:
+    app: calibre
+---
+# Optional Ingress if you're using an ingress controller
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: calibre-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: app.calibre.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: calibre
+            port:
+              number: 8092
+  - host: vnc.calibre.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: calibre
+            port:
+              number: 8091
