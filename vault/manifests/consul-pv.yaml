@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: consul-server-pv
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce    # Keeping RWO as that's what the Consul PVC requests
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    path: /mnt/ultra/newpool/k8s/consul-server
+    server: truenas.local

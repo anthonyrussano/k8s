@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-ui-lb
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault-ui
+    app.kubernetes.io/instance: vault
+spec:
+  type: LoadBalancer
+  ports:
+    - name: https
+      port: 8200
+      targetPort: 8200
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    component: server
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vault-ui-ingress
+  namespace: vault
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: vault
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vault-ui-lb
+            port:
+              number: 8200
