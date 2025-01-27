@@ -1,0 +1,198 @@
+# PersistentVolume for config backup storage
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-config-backup-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    path: /mnt/prox-pool/Coolnow/docker/jellyfin/config
+    server: truenas.local
+    readOnly: false
+---
+# PersistentVolume for media
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-media-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    path: /mnt/prox-pool/Coolnow/docker/jellyfin/media
+    server: truenas.local
+    readOnly: false
+---
+# PVC for config backup
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config-backup-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: jellyfin-config-backup-pv
+---
+# PVC for media
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-media-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: jellyfin-media-pv
+---
+# ConfigMap for sync script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jellyfin-sync-script
+data:
+  sync-config.sh: |
+    #!/bin/sh
+    # Sync from NFS to local on startup
+    if [ "$1" = "init" ]; then
+      echo "Initializing local config from backup..."
+      cp -rf /config-backup/* /config/
+    fi
+    
+    # Periodic sync from local to NFS
+    if [ "$1" = "backup" ]; then
+      while true; do
+        echo "Backing up config to NFS..."
+        cp -rf /config/* /config-backup/
+        sleep 300  # Sync every 5 minutes
+      done
+    fi
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  labels:
+    app: jellyfin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jellyfin
+  template:
+    metadata:
+      labels:
+        app: jellyfin
+    spec:
+      initContainers:
+      - name: init-config
+        image: busybox
+        command: ["/scripts/sync-config.sh", "init"]
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: config-backup
+          mountPath: /config-backup
+        - name: sync-script
+          mountPath: /scripts
+      containers:
+      - name: jellyfin
+        image: jellyfin/jellyfin:latest
+        env:
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+        - name: TZ
+          value: "America/Los_Angeles"
+        ports:
+        - containerPort: 8096
+          name: web
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: cache
+          mountPath: /cache
+        - name: media
+          mountPath: /media
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+      - name: config-sync
+        image: busybox
+        command: ["/scripts/sync-config.sh", "backup"]
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: config-backup
+          mountPath: /config-backup
+        - name: sync-script
+          mountPath: /scripts
+      volumes:
+      - name: config
+        emptyDir: {}  # Local ephemeral storage
+      - name: cache
+        emptyDir: {}  # Local ephemeral storage
+      - name: config-backup
+        persistentVolumeClaim:
+          claimName: jellyfin-config-backup-pvc
+      - name: media
+        persistentVolumeClaim:
+          claimName: jellyfin-media-pvc
+      - name: sync-script
+        configMap:
+          name: jellyfin-sync-script
+          defaultMode: 0755
+---
+# Service (unchanged)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8096
+    targetPort: web
+    protocol: TCP
+    name: web
+  selector:
+    app: jellyfin
+---
+# Ingress (unchanged)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jellyfin-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: app.jellyfin.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: jellyfin
+            port:
+              number: 8096
