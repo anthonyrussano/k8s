@@ -25,14 +25,27 @@ metadata:
   namespace: vault
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - vault
+    secretName: vault-tls
   rules:
   - host: vault
     http:
       paths:
+      # Path for UI
+      - path: /ui
+        pathType: Prefix
+        backend:
+          service:
+            name: vault-ui-lb
+            port:
+              number: 8200
+      # Path for API (CLI and other requests)
       - path: /
         pathType: Prefix
         backend:
