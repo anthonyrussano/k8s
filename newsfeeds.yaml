@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newsfeeds
+  namespace: default  # You can change to a specific namespace if desired
+  labels:
+    app: newsfeeds
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: newsfeeds
+  template:
+    metadata:
+      labels:
+        app: newsfeeds
+    spec:
+      containers:
+      - name: newsfeeds
+        image: anthonyrussano/devops-newsfeeds:web
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 7681
+          name: ttyd
+          protocol: TCP
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: newsfeeds
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+  - port: 7681
+    targetPort: ttyd
+    protocol: TCP
+    name: ttyd
+  selector:
+    app: newsfeeds
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: newsfeeds-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: newsfeeds
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: newsfeeds
+            port:
+              number: 7681

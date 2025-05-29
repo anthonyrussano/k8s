@@ -30,6 +30,8 @@ metadata:
   name: ingress-nginx-controller
   namespace: ingress-nginx
 data:
+  client-max-body-size.conf: |
+    client_max_body_size 100M;  # Set the desired upload size limit
 ---
 # Source: ingress-nginx/templates/clusterrole.yaml
 apiVersion: rbac.authorization.k8s.io/v1
